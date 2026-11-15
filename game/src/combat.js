@@ -14,24 +14,43 @@ export function createCombat(scene, shootMeshes, colliders) {
   raycaster.far = 140;
   const fighters = []; // filled by main: { team, alive, hitMeshes, applyDamage }
 
-  // Tracer pool.
-  const tracerMat = new THREE.LineBasicMaterial({
+  // Soft radial glow texture shared by the impact sparks (a plain square
+  // sprite reads as a glowing slab in a frozen frame; the falloff reads as a
+  // burst of sparks at any instant).
+  const glowCanvas = document.createElement('canvas');
+  glowCanvas.width = 64;
+  glowCanvas.height = 64;
+  {
+    const gx = glowCanvas.getContext('2d');
+    const grad = gx.createRadialGradient(32, 32, 1, 32, 32, 31);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    gx.fillStyle = grad;
+    gx.fillRect(0, 0, 64, 64);
+  }
+  const glowTex = new THREE.CanvasTexture(glowCanvas);
+
+  // Tracer pool: thin additive beams (a stretched unit box per shot). A 1 px
+  // line all but vanishes in a still frame; a beam reads at any distance.
+  const tracerMat = new THREE.MeshBasicMaterial({
     color: 0xffd9a0, transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false,
   });
+  const tracerGeo = new THREE.BoxGeometry(0.03, 0.03, 1);
   const tracers = [];
   for (let i = 0; i < 28; i += 1) {
-    const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-    const line = new THREE.Line(geo, tracerMat.clone());
-    line.visible = false;
-    line.frustumCulled = false;
-    scene.add(line);
-    tracers.push({ line, ttl: 0 });
+    const beam = new THREE.Mesh(tracerGeo, tracerMat.clone());
+    beam.visible = false;
+    beam.frustumCulled = false;
+    scene.add(beam);
+    tracers.push({ line: beam, ttl: 0 });
   }
   let tracerIdx = 0;
 
   // Impact spark pool.
   const sparks = [];
   const sparkMat = new THREE.SpriteMaterial({
+    map: glowTex,
     color: 0xffc36b, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending,
   });
   for (let i = 0; i < 16; i += 1) {
@@ -45,13 +64,13 @@ export function createCombat(scene, shootMeshes, colliders) {
   function tracer(from, to) {
     const t = tracers[tracerIdx];
     tracerIdx = (tracerIdx + 1) % tracers.length;
-    const pos = t.line.geometry.attributes.position;
-    pos.setXYZ(0, from.x, from.y, from.z);
-    pos.setXYZ(1, to.x, to.y, to.z);
-    pos.needsUpdate = true;
-    t.line.visible = true;
-    t.line.material.opacity = 0.55;
-    t.ttl = 0.05;
+    const beam = t.line;
+    beam.position.copy(from).add(to).multiplyScalar(0.5);
+    beam.lookAt(to.x, to.y, to.z);
+    beam.scale.set(1, 1, Math.max(0.1, from.distanceTo(to)));
+    beam.visible = true;
+    beam.material.opacity = 0.6;
+    t.ttl = 0.06;
   }
 
   function spark(point, big = false) {
@@ -155,7 +174,7 @@ export function createCombat(scene, shootMeshes, colliders) {
     blob(84, 86, 24, 0.3);
   }
   const puffMat = new THREE.SpriteMaterial({
-    map: new THREE.CanvasTexture(puffCanvas), color: 0xa79fb2, transparent: true, opacity: 0, depthWrite: false,
+    map: new THREE.CanvasTexture(puffCanvas), color: 0xcfc9c0, transparent: true, opacity: 0, depthWrite: false,
   });
   const smokeClouds = []; // { x, z, r, ttl, puffs: [{s, phase}] }
 
@@ -210,7 +229,7 @@ export function createCombat(scene, shootMeshes, colliders) {
       const fade = c.ttl < 2.5 ? Math.max(0, c.ttl / 2.5) : 1;
       for (const p of c.puffs) {
         p.s.scale.setScalar(1.2 + grow * 4.6 + Math.sin(age * 0.7 + p.phase) * 0.3);
-        p.s.material.opacity = 0.44 * grow * fade;
+        p.s.material.opacity = 0.52 * grow * fade;
       }
       if (c.ttl <= 0) {
         for (const p of c.puffs) scene.remove(p.s);
@@ -290,7 +309,7 @@ export function createCombat(scene, shootMeshes, colliders) {
     for (const t of tracers) {
       if (t.ttl > 0) {
         t.ttl -= dt;
-        t.line.material.opacity = Math.max(0, t.ttl / 0.05) * 0.55;
+        t.line.material.opacity = Math.max(0, t.ttl / 0.06) * 0.6;
         if (t.ttl <= 0) t.line.visible = false;
       }
     }

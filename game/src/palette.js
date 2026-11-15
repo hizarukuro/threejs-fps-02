@@ -3,7 +3,7 @@
 // comes from this table.
 export const PALETTE = {
   sky: 0x51435e, // dusk violet overhead, warming toward the horizon light
-  fog: 0x4a3a3c,
+  fog: 0x6b4a44, // warm dusk haze — light enough that mid-range lanes stay readable
   ground: 0x35322e, // worn asphalt
   concrete: 0x8b8d90,
   concreteDark: 0x5d6066,

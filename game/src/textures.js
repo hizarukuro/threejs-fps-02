@@ -30,7 +30,7 @@ function speckle(ctx, size, base, flecks, count, alpha) {
 
 export function makeTextures() {
   const asphalt = canvasTexture(256, (ctx, s) => {
-    speckle(ctx, s, '#35322e', ['#2b2925', '#403d37', '#48443c'], 2600, 0.5);
+    speckle(ctx, s, '#4b463f', ['#3d3a34', '#57534a', '#655f54'], 2600, 0.5);
     ctx.strokeStyle = 'rgba(0,0,0,0.25)';
     ctx.lineWidth = 2;
     ctx.strokeRect(1, 1, s - 2, s - 2);

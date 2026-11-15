@@ -90,11 +90,13 @@ export function createWeaponState(id) {
   };
 }
 
-// --- Viewmodel: a low, dark gun built from boxes, parented to the camera. ---
+// --- Viewmodel: a low gun built from boxes, parented to the camera. Two-tone
+// finish (graphite receiver, teal polymer furniture — the Haulers' colour) so the
+// silhouette reads as a designed weapon in stills, not a black slab. ---
 const gunMats = {
-  body: new THREE.MeshStandardMaterial({ color: 0x22242a, roughness: 0.55, metalness: 0.6 }),
-  grip: new THREE.MeshStandardMaterial({ color: 0x17181c, roughness: 0.85 }),
-  accent: new THREE.MeshStandardMaterial({ color: 0x3d434c, roughness: 0.4, metalness: 0.7 }),
+  body: new THREE.MeshStandardMaterial({ color: 0x32363e, roughness: 0.5, metalness: 0.6 }),
+  grip: new THREE.MeshStandardMaterial({ color: 0x1e4f4a, roughness: 0.85 }),
+  accent: new THREE.MeshStandardMaterial({ color: 0x59616c, roughness: 0.35, metalness: 0.7 }),
 };
 
 export function buildViewmodel(weaponId) {
@@ -109,10 +111,14 @@ export function buildViewmodel(weaponId) {
   };
   add(0.075, 0.11, long, 0, 0, -long / 2); // receiver
   add(0.05, 0.05, long * 0.55, 0, 0.045, -long - long * 0.2, gunMats.accent); // barrel shroud
+  add(0.055, 0.018, long * 0.8, 0, 0.068, -long * 0.48, gunMats.accent); // top rail
   add(0.06, 0.16, 0.09, 0, -0.12, -0.06, gunMats.grip); // grip
   if (weaponId !== 'pistol') add(0.05, 0.17, 0.08, 0, -0.13, -long * 0.45, gunMats.grip); // magazine
   if (def.zoom > 1.5) add(0.045, 0.07, 0.16, 0, 0.1, -0.12, gunMats.accent); // scope
-  else add(0.02, 0.05, 0.03, 0, 0.085, -long * 0.7, gunMats.accent); // front post
+  else {
+    add(0.02, 0.05, 0.03, 0, 0.085, -long * 0.7, gunMats.accent); // front post
+    add(0.05, 0.055, 0.025, 0, 0.088, -0.045, gunMats.accent); // rear sight block
+  }
   // Muzzle reference point for flash placement.
   const muzzle = new THREE.Object3D();
   muzzle.position.set(0, 0.03, -long - long * 0.45);
@@ -122,14 +128,27 @@ export function buildViewmodel(weaponId) {
   return g;
 }
 
-// Muzzle flash: a shared additive sprite + point light, pulsed by combat.
+// Muzzle flash: a shared additive sprite + point light, pulsed by combat. The
+// sprite carries a radial-falloff texture: a plain square reads as a glowing
+// slab in a frozen frame, the falloff reads as a fireball at any instant.
 export function createMuzzleFlash(camera) {
+  const fc = document.createElement('canvas');
+  fc.width = 64;
+  fc.height = 64;
+  const fx = fc.getContext('2d');
+  const grad = fx.createRadialGradient(32, 32, 1, 32, 32, 31);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  fx.fillStyle = grad;
+  fx.fillRect(0, 0, 64, 64);
   const mat = new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(fc),
     color: 0xffc36b, transparent: true, opacity: 0, depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(0.34, 0.34, 1);
+  sprite.scale.set(0.42, 0.42, 1);
   const light = new THREE.PointLight(0xffb45e, 0, 9, 2);
   return {
     attach(viewmodel) {

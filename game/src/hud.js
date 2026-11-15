@@ -10,6 +10,7 @@ export function createHud() {
     round: $('round-label'), health: $('health-fill'), healthText: $('health-text'),
     armor: $('armor-tag'), money: $('money'), ammoMag: $('ammo-mag'), ammoReserve: $('ammo-reserve'),
     weaponName: $('weapon-name'), grenades: $('grenade-count'), hitmarker: $('hitmarker'),
+    pipsW: $('pips-w'), pipsJ: $('pips-j'),
     crosshair: $('crosshair'), feed: $('kill-feed'), banner: $('banner'), bannerTitle: $('banner-title'),
     bannerSub: $('banner-sub'), prompt: $('prompt'), channel: $('channel'), channelFill: $('channel-fill'),
     channelLabel: $('channel-label'), chargeTag: $('charge-tag'), vignette: $('vignette'),
@@ -33,6 +34,7 @@ export function createHud() {
   }
 
   let hitTtl = 0;
+  let hitUntil = -1; // sim-time deadline when set (staged frames freeze sim time)
   let hurtTtl = 0;
   let bannerUntil = 0;
 
@@ -107,6 +109,12 @@ export function createHud() {
       set('phase', els.phase, s.phaseLabel);
       set('scoreW', els.scoreW, String(s.scoreW));
       set('scoreJ', els.scoreJ, String(s.scoreJ));
+      // Alive pips beside each score: the round's manpower at a glance.
+      const pips = (alive) => '<i class="on"></i>'.repeat(alive) + '<i></i>'.repeat(Math.max(0, 5 - alive));
+      const pw = pips(s.aliveW ?? 5);
+      if (cache.get('pipsW') !== pw) { cache.set('pipsW', pw); els.pipsW.innerHTML = pw; }
+      const pj = pips(s.aliveJ ?? 5);
+      if (cache.get('pipsJ') !== pj) { cache.set('pipsJ', pj); els.pipsJ.innerHTML = pj; }
       set('round', els.round, `ROUND ${s.round}`);
       setWidth('health', els.health, s.health);
       set('healthText', els.healthText, `${Math.ceil(s.health)}`);
@@ -120,6 +128,10 @@ export function createHud() {
       els.chargeTag.style.visibility = s.chargeTag ? 'visible' : 'hidden';
       if (s.chargeTag) set('chargeTag', els.chargeTag, s.chargeTag);
 
+      if (hitUntil >= 0 && now > hitUntil) {
+        hitUntil = -1;
+        els.hitmarker.classList.remove('on', 'kill');
+      }
       if (hitTtl > 0) {
         hitTtl -= 1;
         if (hitTtl === 0) els.hitmarker.classList.remove('on', 'kill');
@@ -166,10 +178,17 @@ export function createHud() {
       }
     },
 
-    hitmarker(kill) {
+    hitmarker(kill, now) {
       els.hitmarker.classList.add('on');
       els.hitmarker.classList.toggle('kill', kill);
-      hitTtl = kill ? 14 : 7;
+      // With a sim time the marker lives on the sim clock (so a frozen staged
+      // frame keeps it, like the banner); without one it counts render frames.
+      if (typeof now === 'number') {
+        hitUntil = now + (kill ? 0.3 : 0.18);
+        hitTtl = 0;
+      } else {
+        hitTtl = kill ? 14 : 7;
+      }
     },
     hurt() {
       els.vignette.classList.add('on');
@@ -206,6 +225,10 @@ export function createHud() {
       set('bannerSub', els.bannerSub, sub || '');
       els.banner.classList.add('on');
       bannerUntil = now + seconds;
+    },
+    clearBanner() {
+      bannerUntil = 0;
+      els.banner.classList.remove('on');
     },
     showBuy(money, kit) {
       els.buyMenu.classList.add('on');
