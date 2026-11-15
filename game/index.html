@@ -37,6 +37,10 @@
   .scorebox span { display: block; font-size: 9px; letter-spacing: 0.14em; color: var(--muted); font-family: var(--font-ui); }
   #score-w { color: var(--teal); }
   #score-j { color: var(--rust); }
+  .pips { display: flex; gap: 3px; align-items: center; }
+  .pips i { width: 6px; height: 16px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); }
+  .pips-w i.on { background: var(--teal); }
+  .pips-j i.on { background: var(--rust); }
   #round-label { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); font-family: var(--font-ui); text-align: center; }
   #phase-label { font-size: 10px; letter-spacing: 0.14em; color: var(--amber); font-family: var(--font-ui); text-align: center; }
 
@@ -186,11 +190,13 @@
   <canvas id="minimap" width="170" height="120"></canvas>
   <div id="topbar">
     <div class="scorebox"><b id="score-w">0</b><span>HAULERS</span></div>
+    <div class="pips pips-w" id="pips-w"></div>
     <div>
       <div id="timer">0:12</div>
       <div id="round-label">ROUND 1</div>
       <div id="phase-label">BUY PHASE</div>
     </div>
+    <div class="pips pips-j" id="pips-j"></div>
     <div class="scorebox"><b id="score-j">0</b><span>JACKALS</span></div>
   </div>
   <div id="charge-tag">CHARGE PLANTED</div>

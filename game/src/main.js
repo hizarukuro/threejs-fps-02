@@ -39,13 +39,17 @@ const rng = mulberry32(seed * 7919 + 13);
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
+// Filmic grade with a lifted exposure: the golden hour should read as lit
+// sunset, not night — surfaces keep their colour at screenshot distance.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.18;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.getElementById('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(PALETTE.sky);
-scene.fog = new THREE.Fog(PALETTE.fog, 34, 95);
+scene.fog = new THREE.Fog(PALETTE.fog, 42, 115);
 const camera = new THREE.PerspectiveCamera(78, window.innerWidth / window.innerHeight, 0.05, 160);
 scene.add(camera);
 
@@ -58,8 +62,8 @@ scene.add(camera);
     depthWrite: false,
     fog: false,
     uniforms: {
-      top: { value: new THREE.Color(0x3d3a5e) },
-      mid: { value: new THREE.Color(0x8a5570) },
+      top: { value: new THREE.Color(0x4b3a5f) },
+      mid: { value: new THREE.Color(0x9c5f74) },
       low: { value: new THREE.Color(0xff9a4d) },
     },
     vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -70,9 +74,9 @@ scene.add(camera);
   scene.add(new THREE.Mesh(skyGeo, skyMat));
 }
 
-const hemi = new THREE.HemisphereLight(0xbfa8d8, 0x4a3826, 1.25);
+const hemi = new THREE.HemisphereLight(0xbfa8d8, 0x5d4630, 1.6);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(PALETTE.sun, 2.6);
+const sun = new THREE.DirectionalLight(PALETTE.sun, 3.2);
 sun.position.set(-34, 15, -30);
 sun.castShadow = true;
 sun.shadow.mapSize.set(1024, 1024);
@@ -401,7 +405,7 @@ function playerShoot(now) {
   shake = Math.min(0.3, shake + w.def.kick * 0.7);
   if (viewmodel) viewmodel.position.z = -0.35 + 0.05;
   if (res.hitFighter && res.hitFighter.team !== playerEnt.team) {
-    hud.hitmarker(res.died);
+    hud.hitmarker(res.died, simTime);
     audio.hitmarker(res.died);
     if (res.died) handleKill(res.hitFighter, playerEnt, res.isHead);
   }
@@ -587,6 +591,8 @@ function hudSnapshot() {
     phaseLabel: phaseLabel(),
     scoreW: st.scoreW,
     scoreJ: st.scoreJ,
+    aliveW: (playerEnt.alive ? 1 : 0) + wardenBots.filter((b) => b.alive).length,
+    aliveJ: jackalBots.filter((b) => b.alive).length,
     round: st.round,
     health: playerEnt.health,
     armor: playerEnt.armor,
@@ -689,10 +695,35 @@ function runShot(name) {
     owned.rifle = owned.rifle || createWeaponState('rifle');
     equip('rifle');
   };
+  // Aim the camera exactly at a world point: convert the wanted forward vector
+  // into the mouse-delta units player.look() consumes (from the current yaw).
+  const aimAt = (tx, ty, tz) => {
+    const eye = playerEnt.eyePos();
+    const fx = tx - eye.x;
+    const fy = ty - eye.y;
+    const fz = tz - eye.z;
+    const targetYaw = Math.atan2(-fx, -fz);
+    const targetPitch = Math.atan2(fy, Math.hypot(fx, fz));
+    player.look((player.yaw - targetYaw) / 0.0021, (player.pitch - targetPitch) / 0.0021);
+  };
+  // A staged enemy shot across the frame: the same combat.fire call bot
+  // shooting makes, aimed a body's width off the player so it sparks scenery.
+  const returnFire = (bot, tx, ty, tz) => {
+    const from = bot.eyePos();
+    from.y -= 0.18;
+    const dir = new THREE.Vector3(tx - from.x, ty - from.y, tz - from.z).normalize();
+    combat.fire(bot, WEAPONS.rifle, bot.eyePos(), dir, 0.004, rng, from);
+  };
   if (name === 'start') {
-    // COVER — a mid-round firefight in the mid lane (z ≈ -1, the gap between the
-    // container rows): a Jackal over the crate at (11,-1.5) past a fresh smoke
-    // bloom, a second deeper in, a Hauler at the player's shoulder, tracers out.
+    // COVER — a mid-round firefight in the mid lane (z ≈ -1, the gap between
+    // the container rows): two Jackals over the crate at (11,-1.5), a smoke
+    // wall blooming on the crossing, Vega fighting on the B side (she is the
+    // Jackals' nearest target, so they engage her and stay in frame instead of
+    // charging the player through the smoke). The closing exchange — the
+    // player's shot and a Jackal's answer — is staged last and frozen after a
+    // single step, so the tracers, muzzle flash, impact spark, hit flash and
+    // hitmarker are all still on the frame. No centre banner: the top bar
+    // already carries the round, and a banner reads as a menu, not a fight.
     match.state.phase = 'live';
     match.state.timer = 74;
     match.state.round = 6;
@@ -700,37 +731,50 @@ function runShot(name) {
     match.state.scoreJ = 2;
     giveRifle();
     kit.smokes = 1;
-    player.body.pos.x = 4.5;
-    player.body.pos.z = -1.2;
-    player.look(374, 10);
-    // Vega fights from east of the crate, on the B side: she is the Jackals'
-    // nearest target, so they engage her and stay in frame instead of charging
-    // the player's position through the smoke — and her own route to B leads
-    // east, away from the camera.
-    wardenBots[0].body.pos.x = 13.5;
-    wardenBots[0].body.pos.z = -4.5;
-    wardenBots[0].yaw = -Math.PI / 2;
-    jackalBots[0].body.pos.x = 12.5;
-    jackalBots[0].body.pos.z = -2.6;
-    jackalBots[0].yaw = Math.PI / 2;
-    jackalBots[1].body.pos.x = 15.5;
-    jackalBots[1].body.pos.z = 1.2;
-    jackalBots[1].yaw = Math.PI / 2;
+    kit.grenades = 1;
+    const pin = () => {
+      player.body.pos.x = 6.4;
+      player.body.pos.z = -1.0;
+      wardenBots[0].body.pos.x = 12.4;
+      wardenBots[0].body.pos.z = -4.3;
+      wardenBots[0].yaw = -Math.PI / 2;
+      jackalBots[0].body.pos.x = 11.8;
+      jackalBots[0].body.pos.z = -2.5;
+      jackalBots[0].yaw = Math.PI / 2;
+      jackalBots[1].body.pos.x = 14.8;
+      jackalBots[1].body.pos.z = 0.8;
+      jackalBots[1].yaw = Math.PI / 2;
+    };
+    pin();
+    // The settle is a real 2.5 s fight: nobody the frame needs may die in it.
+    for (const b of [wardenBots[0], jackalBots[0], jackalBots[1]]) b.health = 9999;
+    playerEnt.health = 9999;
     // Smoke the crossing, let it bloom fully (fuse 1.1 s + 1.3 s of growth
-    // inside the settle), then open fire.
+    // inside the settle) while the staged fight runs.
     _origin.copy(playerEnt.eyePos());
     _dir.set(0.92, 0.02, -0.39).normalize();
     combat.throwSmoke(_origin, _dir, playerEnt);
     settle(150);
+    pin();
+    for (const b of [wardenBots[0], jackalBots[0], jackalBots[1]]) b.health = 100;
+    playerEnt.health = 88;
+    // Aim at the upper torso: high enough to clear the crate's top edge by a
+    // margin (a centre-mass line grazes it), low enough to stay out of the
+    // head box — a wound and a flash, not a kill.
+    aimAt(jackalBots[0].body.pos.x, 1.2, jackalBots[0].body.pos.z);
+    settle(2);
     // Sticky rows: feed rows expire on wall-clock timers, which a slow headless
     // capture would outrun — staged rows stay until replaced.
     hud.clearFeeds();
-    hud.banner('ROUND 6', 'Attack site B — Fuel Yard', 3.2, simTime);
+    hud.clearBanner();
     hud.radio('Vega', 'Contact — Mid Crates! Two past the smoke.', TEAM.WARDENS, true);
     hud.radio('Rook', 'Heard shots, Mid Crates. Rotating.', TEAM.JACKALS, true);
     hud.feed('<span class="w">You</span> » <span class="j">Moss</span>', true);
     playerShoot(simTime);
-    settle(5);
+    // The answer comes the other way, wide of the player: a long diagonal beam
+    // across the whole frame, sparked off the west containers.
+    returnFire(jackalBots[1], 3.4, 1.2, -2.6);
+    settle(1);
   } else if (name === 'buy') {
     // BUY PHASE — the equipment menu over the yard, money and owned kit visible.
     match.state.timer = 9;
@@ -746,33 +790,50 @@ function runShot(name) {
     settle(20);
     hud.showBuy(match.playerEnt.money, kit);
   } else if (name === 'play') {
-    // PLANTED — holding the Loading Bay while the Jackals retake through the
-    // warehouse door; the charge burns on the dock behind the player.
+    // PLANTED — holding the Loading Bay against the retake: the charge blinks
+    // on the hazard stripes mid-frame, the painted A sign reads over the
+    // warehouse door, and two Jackals push onto the dock apron — one out of
+    // the east door, one around the south crates — while Onyx holds the north
+    // side. The closing exchange is staged and frozen like the cover's; the
+    // CHARGE PLANTED pill and phase label carry the state, no centre banner.
     match.state.phase = 'live';
     match.state.round = 9;
     match.state.scoreW = 5;
     match.state.scoreJ = 3;
     giveRifle();
-    player.body.pos.x = -0.5;
-    player.body.pos.z = 2.8;
-    player.look(-374, 16);
-    jackalBots[0].body.pos.x = -9.5;
-    jackalBots[0].body.pos.z = -3.2;
-    jackalBots[0].yaw = -Math.PI / 2;
-    jackalBots[1].body.pos.x = -11;
-    jackalBots[1].body.pos.z = 2.2;
-    jackalBots[1].yaw = -Math.PI / 2;
-    wardenBots[1].body.pos.x = -3.6;
-    wardenBots[1].body.pos.z = -4.6;
-    wardenBots[1].yaw = Math.PI / 2;
+    kit.grenades = 1;
+    const pin = () => {
+      player.body.pos.x = 1.2;
+      player.body.pos.z = 3.6;
+      jackalBots[0].body.pos.x = -5.6;
+      jackalBots[0].body.pos.z = 0.9;
+      jackalBots[0].yaw = -Math.PI / 2;
+      jackalBots[1].body.pos.x = -5.2;
+      jackalBots[1].body.pos.z = 4.6;
+      jackalBots[1].yaw = -Math.PI / 2;
+      wardenBots[1].body.pos.x = -3.4;
+      wardenBots[1].body.pos.z = -4.8;
+      wardenBots[1].yaw = Math.PI / 2;
+    };
+    pin();
+    for (const b of [jackalBots[0], jackalBots[1], wardenBots[1]]) b.health = 9999;
+    playerEnt.health = 9999;
     match.plantCharge('A', match.playerEnt);
     match.state.timer = 31;
     settle(45);
+    pin();
+    for (const b of [jackalBots[0], jackalBots[1], wardenBots[1]]) b.health = 100;
+    playerEnt.health = 84;
+    aimAt(jackalBots[0].body.pos.x, 1.05, jackalBots[0].body.pos.z);
+    settle(2);
     hud.clearFeeds();
+    hud.clearBanner();
     hud.radio('Radio', 'Charge planted at A. Hold the site.', TEAM.WARDENS, true);
     hud.radio('Sable', 'Rotating to A — coming through the Dock.', TEAM.JACKALS, true);
     hud.feed('<span class="w">Onyx</span> » <span class="j">Rook</span>', true);
-    hud.banner('CHARGE PLANTED', 'Hold the Loading Bay', 60, simTime);
+    playerShoot(simTime);
+    returnFire(jackalBots[1], player.body.pos.x + 0.7, 1.3, player.body.pos.z + 0.9);
+    settle(1);
   } else if (name === 'end') {
     // TITLE — the menu over the yard from the south-east lane looking
     // west-north-west across mid: containers in the foreground, the warehouse
@@ -785,8 +846,11 @@ function runShot(name) {
   }
   syncCamera();
   renderer.render(scene, camera);
+  // Mark ready synchronously: the frame loop's freeze engages on its very next
+  // pass, so the staged instant (tracers, flash, hitmarker) cannot decay in
+  // the gap between staging and the harness's capture.
+  window.__shotReady = true;
   requestAnimationFrame(() => {
     renderer.render(scene, camera);
-    window.__shotReady = true;
   });
 }

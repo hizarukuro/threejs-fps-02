@@ -50,13 +50,20 @@ function makeNameplate(name, team) {
 export function createBot(scene, team, spawn, skill) {
   botSeq += 1;
   const group = new THREE.Group();
-  const mat = bodyMats[team];
+  // Torso and head materials are cloned per bot so a hit can flash this fighter's
+  // own emissive without lighting up the whole team (the shared table stays base).
+  const mat = bodyMats[team].clone();
+  mat.emissive = new THREE.Color(0xff8c4a);
+  mat.emissiveIntensity = 0;
+  const headMat = bodyMats.head.clone();
+  headMat.emissive = new THREE.Color(0xff8c4a);
+  headMat.emissiveIntensity = 0;
   const legs = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.55, 0.3), bodyMats.dark);
   legs.position.y = 0.28;
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.34), mat);
   torso.position.y = 0.92;
   torso.userData.part = 'body';
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), bodyMats.head);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), headMat);
   head.position.y = 1.5;
   head.userData.part = 'head';
   const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 0.4), bodyMats.helmet);
@@ -83,6 +90,9 @@ export function createBot(scene, team, spawn, skill) {
     grenades: 0,
     smokes: 0,
     nameplate: null,
+    torsoMat: mat,
+    headMat,
+    flashT: 0, // seconds of hit-flash left; stepBot decays the emissive
     contactCd: 0,
     heardCd: 0,
     orderCd: 0,
@@ -126,10 +136,17 @@ export function createBot(scene, team, spawn, skill) {
       if (!this.alive) return { damage: 0, died: false };
       const dmg = this.armor ? raw * 0.55 : raw;
       this.health -= dmg;
+      // Hit feedback: a brief emissive flash on the struck fighter.
+      this.flashT = 0.11;
+      this.torsoMat.emissiveIntensity = 1.5;
+      this.headMat.emissiveIntensity = 1.1;
       if (this.health <= 0) {
         this.health = 0;
         this.alive = false;
         this.channel = null;
+        this.flashT = 0;
+        this.torsoMat.emissiveIntensity = 0;
+        this.headMat.emissiveIntensity = 0;
         this.group.rotation.z = Math.PI / 2.1;
         this.group.position.y = 0.25;
         if (this.nameplate) this.nameplate.visible = false;
@@ -238,6 +255,13 @@ function moveToward(bot, ctx, tx, tz, dt, speed, arrived) {
 
 export function stepBot(bot, ctx, dt, now) {
   if (!bot.alive) return;
+  // Decay the hit flash (set by applyDamage) back to the base materials.
+  if (bot.flashT > 0) {
+    bot.flashT = Math.max(0, bot.flashT - dt);
+    const k = bot.flashT / 0.11;
+    bot.torsoMat.emissiveIntensity = 1.5 * k;
+    bot.headMat.emissiveIntensity = 1.1 * k;
+  }
   bot.weapon.step(dt);
   bot.weapon.finishReloadIfDue(now);
   const { colliders } = ctx;
